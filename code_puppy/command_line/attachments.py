@@ -75,8 +75,9 @@ def _is_probable_path(token: str) -> bool:
         return True
     if len(token) >= 2 and token[1] == ":":
         return True
-    # Things like `path/to/file.png`
-    return os.sep in token or '"' in token
+    # Things like `path/to/file.png` or paths that may have been quoted
+    # Note: quotes should be stripped by _strip_attachment_token before calling this
+    return os.sep in token
 
 
 def _unescape_dragged_path(token: str) -> str:
@@ -128,10 +129,21 @@ def _tokenise(prompt: str) -> Iterable[str]:
 
     if not prompt:
         return []
+    
+    # Handle Windows PowerShell @"..." syntax by converting to regular quotes
+    # This prevents shlex from incorrectly splitting @-quoted paths
+    processed_prompt = prompt
+    if os.name == "nt":
+        # Convert PowerShell @"..." and @'...' to regular quotes
+        # Use regex to handle the @ prefix for quoted strings
+        import re
+        # Pattern matches @"..." or @'...' and removes the @ prefix
+        processed_prompt = re.sub(r'@(["\'])', r'\1', processed_prompt)
+    
     try:
         # On Windows, avoid POSIX escaping so backslashes are preserved
         posix_mode = os.name != "nt"
-        return shlex.split(prompt, posix=posix_mode)
+        return shlex.split(processed_prompt, posix=posix_mode)
     except ValueError:
         # Fallback naive split when shlex fails (e.g. unmatched quotes)
         return prompt.split()
@@ -140,7 +152,8 @@ def _tokenise(prompt: str) -> Iterable[str]:
 def _strip_attachment_token(token: str) -> str:
     """Trim surrounding whitespace/punctuation terminals tack onto paths."""
 
-    return token.strip().strip(",;:()[]{}")
+    # Strip surrounding whitespace, punctuation, and quotes
+    return token.strip().strip(",;:()[]{}\"'")
 
 
 def _candidate_paths(

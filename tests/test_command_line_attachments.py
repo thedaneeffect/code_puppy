@@ -11,6 +11,7 @@ from pydantic_ai import BinaryContent
 from code_puppy.command_line.attachments import (
     DEFAULT_ACCEPTED_IMAGE_EXTENSIONS,
     parse_prompt_attachments,
+    _detect_path_tokens,
 )
 from code_puppy.main import run_prompt_with_attachments
 
@@ -30,6 +31,56 @@ def test_parse_prompt_attachments_handles_images(
     assert processed.warnings == []
 
 
+def test_windows_powershell_at_quoted_paths(tmp_path: Path) -> None:
+    """Test that PowerShell @"..." syntax works on Windows."""
+    import os
+    
+    attachment_path = tmp_path / "test.png"
+    attachment_path.write_bytes(b"fake-png-bytes")
+    
+    # Test PowerShell @"path" syntax
+    powershell_prompt = f'Analyze @"{attachment_path}" for me'
+    processed = parse_prompt_attachments(powershell_prompt)
+    
+    assert "Analyze" in processed.prompt and "for me" in processed.prompt
+    assert len(processed.attachments) == 1
+    assert processed.attachments[0].content.media_type == "image/png"
+    assert processed.warnings == []
+    
+    # Test regular quoted paths also work
+    regular_prompt = f'Check "{attachment_path}" please'
+    processed_regular = parse_prompt_attachments(regular_prompt)
+    
+    assert "Check" in processed_regular.prompt and "please" in processed_regular.prompt
+    assert len(processed_regular.attachments) == 1
+    assert processed_regular.attachments[0].content.media_type == "image/png"
+    
+    # Test path detection directly for @"..." syntax
+    detections, warnings = _detect_path_tokens(powershell_prompt)
+    assert len(detections) == 1
+    assert detections[0].path == attachment_path
+    assert len(warnings) == 0
+
+
+def test_path_detection_with_quotes(tmp_path: Path) -> None:
+    """Test that quoted paths are properly detected after stripping quotes."""
+    
+    attachment_path = tmp_path / "test.gif"
+    attachment_path.write_bytes(b"fake-gif-bytes")
+    
+    # Test various quote formats
+    test_cases = [
+        f'Look at "{attachment_path}"',
+        f"Check '{attachment_path}'",
+        f'Analyze "{attachment_path}" and summarize',
+    ]
+    
+    for prompt in test_cases:
+        processed = parse_prompt_attachments(prompt)
+        assert len(processed.attachments) == 1
+        assert processed.attachments[0].content.media_type == "image/gif"
+
+
 def test_parse_prompt_attachments_handles_unquoted_spaces(tmp_path: Path) -> None:
     file_path = tmp_path / "cute pupper image.png"
     file_path.write_bytes(b"imaginary")
@@ -42,6 +93,56 @@ def test_parse_prompt_attachments_handles_unquoted_spaces(tmp_path: Path) -> Non
     assert len(processed.attachments) == 1
     assert processed.attachments[0].content.media_type.startswith("image/")
     assert processed.warnings == []
+
+
+def test_windows_powershell_at_quoted_paths(tmp_path: Path) -> None:
+    """Test that PowerShell @"..." syntax works on Windows."""
+    import os
+    
+    attachment_path = tmp_path / "test.png"
+    attachment_path.write_bytes(b"fake-png-bytes")
+    
+    # Test PowerShell @"path" syntax
+    powershell_prompt = f'Analyze @"{attachment_path}" for me'
+    processed = parse_prompt_attachments(powershell_prompt)
+    
+    assert "Analyze" in processed.prompt and "for me" in processed.prompt
+    assert len(processed.attachments) == 1
+    assert processed.attachments[0].content.media_type == "image/png"
+    assert processed.warnings == []
+    
+    # Test regular quoted paths also work
+    regular_prompt = f'Check "{attachment_path}" please'
+    processed_regular = parse_prompt_attachments(regular_prompt)
+    
+    assert "Check" in processed_regular.prompt and "please" in processed_regular.prompt
+    assert len(processed_regular.attachments) == 1
+    assert processed_regular.attachments[0].content.media_type == "image/png"
+    
+    # Test path detection directly for @"..." syntax
+    detections, warnings = _detect_path_tokens(powershell_prompt)
+    assert len(detections) == 1
+    assert detections[0].path == attachment_path
+    assert len(warnings) == 0
+
+
+def test_path_detection_with_quotes(tmp_path: Path) -> None:
+    """Test that quoted paths are properly detected after stripping quotes."""
+    
+    attachment_path = tmp_path / "test.gif"
+    attachment_path.write_bytes(b"fake-gif-bytes")
+    
+    # Test various quote formats
+    test_cases = [
+        f'Look at "{attachment_path}"',
+        f"Check '{attachment_path}'",
+        f'Analyze "{attachment_path}" and summarize',
+    ]
+    
+    for prompt in test_cases:
+        processed = parse_prompt_attachments(prompt)
+        assert len(processed.attachments) == 1
+        assert processed.attachments[0].content.media_type == "image/gif"
 
 
 def test_parse_prompt_handles_dragged_escaped_spaces(tmp_path: Path) -> None:
@@ -61,6 +162,56 @@ def test_parse_prompt_handles_dragged_escaped_spaces(tmp_path: Path) -> None:
     assert processed.warnings == []
 
 
+def test_windows_powershell_at_quoted_paths(tmp_path: Path) -> None:
+    """Test that PowerShell @"..." syntax works on Windows."""
+    import os
+    
+    attachment_path = tmp_path / "test.png"
+    attachment_path.write_bytes(b"fake-png-bytes")
+    
+    # Test PowerShell @"path" syntax
+    powershell_prompt = f'Analyze @"{attachment_path}" for me'
+    processed = parse_prompt_attachments(powershell_prompt)
+    
+    assert "Analyze" in processed.prompt and "for me" in processed.prompt
+    assert len(processed.attachments) == 1
+    assert processed.attachments[0].content.media_type == "image/png"
+    assert processed.warnings == []
+    
+    # Test regular quoted paths also work
+    regular_prompt = f'Check "{attachment_path}" please'
+    processed_regular = parse_prompt_attachments(regular_prompt)
+    
+    assert "Check" in processed_regular.prompt and "please" in processed_regular.prompt
+    assert len(processed_regular.attachments) == 1
+    assert processed_regular.attachments[0].content.media_type == "image/png"
+    
+    # Test path detection directly for @"..." syntax
+    detections, warnings = _detect_path_tokens(powershell_prompt)
+    assert len(detections) == 1
+    assert detections[0].path == attachment_path
+    assert len(warnings) == 0
+
+
+def test_path_detection_with_quotes(tmp_path: Path) -> None:
+    """Test that quoted paths are properly detected after stripping quotes."""
+    
+    attachment_path = tmp_path / "test.gif"
+    attachment_path.write_bytes(b"fake-gif-bytes")
+    
+    # Test various quote formats
+    test_cases = [
+        f'Look at "{attachment_path}"',
+        f"Check '{attachment_path}'",
+        f'Analyze "{attachment_path}" and summarize',
+    ]
+    
+    for prompt in test_cases:
+        processed = parse_prompt_attachments(prompt)
+        assert len(processed.attachments) == 1
+        assert processed.attachments[0].content.media_type == "image/gif"
+
+
 def test_parse_prompt_attachments_trims_trailing_punctuation(tmp_path: Path) -> None:
     file_path = tmp_path / "doggo photo.png"
     file_path.write_bytes(b"bytes")
@@ -71,6 +222,56 @@ def test_parse_prompt_attachments_trims_trailing_punctuation(tmp_path: Path) -> 
     assert len(processed.attachments) == 1
     assert processed.attachments[0].content.media_type.startswith("image/")
     assert processed.warnings == []
+
+
+def test_windows_powershell_at_quoted_paths(tmp_path: Path) -> None:
+    """Test that PowerShell @"..." syntax works on Windows."""
+    import os
+    
+    attachment_path = tmp_path / "test.png"
+    attachment_path.write_bytes(b"fake-png-bytes")
+    
+    # Test PowerShell @"path" syntax
+    powershell_prompt = f'Analyze @"{attachment_path}" for me'
+    processed = parse_prompt_attachments(powershell_prompt)
+    
+    assert "Analyze" in processed.prompt and "for me" in processed.prompt
+    assert len(processed.attachments) == 1
+    assert processed.attachments[0].content.media_type == "image/png"
+    assert processed.warnings == []
+    
+    # Test regular quoted paths also work
+    regular_prompt = f'Check "{attachment_path}" please'
+    processed_regular = parse_prompt_attachments(regular_prompt)
+    
+    assert "Check" in processed_regular.prompt and "please" in processed_regular.prompt
+    assert len(processed_regular.attachments) == 1
+    assert processed_regular.attachments[0].content.media_type == "image/png"
+    
+    # Test path detection directly for @"..." syntax
+    detections, warnings = _detect_path_tokens(powershell_prompt)
+    assert len(detections) == 1
+    assert detections[0].path == attachment_path
+    assert len(warnings) == 0
+
+
+def test_path_detection_with_quotes(tmp_path: Path) -> None:
+    """Test that quoted paths are properly detected after stripping quotes."""
+    
+    attachment_path = tmp_path / "test.gif"
+    attachment_path.write_bytes(b"fake-gif-bytes")
+    
+    # Test various quote formats
+    test_cases = [
+        f'Look at "{attachment_path}"',
+        f"Check '{attachment_path}'",
+        f'Analyze "{attachment_path}" and summarize',
+    ]
+    
+    for prompt in test_cases:
+        processed = parse_prompt_attachments(prompt)
+        assert len(processed.attachments) == 1
+        assert processed.attachments[0].content.media_type == "image/gif"
 
 
 def test_parse_prompt_skips_unsupported_types(tmp_path: Path) -> None:
