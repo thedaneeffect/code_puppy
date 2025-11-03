@@ -4,6 +4,7 @@ import asyncio
 import json
 import math
 import signal
+import sys
 import threading
 import uuid
 from abc import ABC, abstractmethod
@@ -1169,26 +1170,60 @@ class BaseAgent(ABC):
         stop_event: threading.Event,
         on_escape: Callable[[], None],
     ) -> None:
-        import msvcrt
         import time
-
+        
+        # Try msvcrt first for regular Windows console
+        try:
+            import msvcrt
+            use_msvcrt = True
+        except ImportError:
+            use_msvcrt = False
+        
+        # For PowerShell, msvcrt often doesn't work properly
+        # We'll try a different approach using stdin polling
+        import sys
+        import select
+        
         while not stop_event.is_set():
             try:
-                if msvcrt.kbhit():
-                    key = msvcrt.getwch()
-                    if key == "\x1b":
-                        try:
-                            on_escape()
-                        except Exception:
-                            emit_warning(
-                                "Escape handler raised unexpectedly; Ctrl+C still works."
-                            )
-            except Exception:
+                if use_msvcrt:
+                    # Try msvcrt method for regular console
+                    if msvcrt.kbhit():
+                        key = msvcrt.getwch()
+                        if key == "\x1b":
+                            try:
+                                result = on_escape()
+                                emit_warning("Shell command interrupted via ESC key")
+                            except Exception as e:
+                                emit_warning(
+                                    f"Escape handler raised unexpectedly: {e}; Ctrl+C still works."
+                                )
+                else:
+                    # Fallback for PowerShell - use select polling
+                    try:
+                        # This might work in some PowerShell configurations
+                        ready, _, _ = select.select([sys.stdin], [], [], 0.01)
+                        if ready:
+                            char = sys.stdin.read(1)
+                            if char == "\x1b":
+                                try:
+                                    result = on_escape()
+                                    emit_warning("Shell command interrupted via ESC key")
+                                except Exception as e:
+                                    emit_warning(
+                                        f"Escape handler raised unexpectedly: {e}; Ctrl+C still works."
+                                    )
+                    except (OSError, ValueError, ImportError):
+                        # select doesn't work well in PowerShell either
+                        # Just continue and rely on Ctrl+C
+                        pass
+                        
+            except Exception as e:
                 emit_warning(
-                    "Windows escape listener error; Ctrl+C is still available for cancel."
+                    f"Windows escape listener error: {e}; Ctrl+C is still available for cancel."
                 )
-                return
-            time.sleep(0.05)
+                # Don't return immediately - keep trying
+            time.sleep(0.1)  # Slightly longer sleep to reduce CPU usage
 
     def _listen_for_escape_posix(
         self,
@@ -1446,7 +1481,18 @@ class BaseAgent(ABC):
         original_handler = None
         try:
             # Save original handler and set our custom one AFTER task is created
-            original_handler = signal.signal(signal.SIGINT, keyboard_interrupt_handler)
+            # On Windows PowerShell, be extra careful with signal handling
+            if sys.platform.startswith('win'):
+                # Windows: Use a more cautious approach to avoid bricking PowerShell
+                try:
+                    original_handler = signal.signal(signal.SIGINT, keyboard_interrupt_handler)
+                except (OSError, ValueError) as e:
+                    # If signal handler setup fails on Windows, continue without it
+                    emit_warning(f"Could not set up signal handler on Windows: {e}")
+                    original_handler = None
+            else:
+                # Unix-like systems: Normal signal handling
+                original_handler = signal.signal(signal.SIGINT, keyboard_interrupt_handler)
 
             # Wait for the task to complete or be cancelled
             result = await agent_task
@@ -1458,9 +1504,22 @@ class BaseAgent(ABC):
             if not agent_task.done():
                 agent_task.cancel()
         finally:
-            # Restore original signal handler
+            # Restore original signal handler - be careful on Windows
             if original_handler:
-                signal.signal(signal.SIGINT, original_handler)
+                try:
+                    if sys.platform.startswith('win'):
+                        # Windows: Try to restore, but don't crash if it fails
+                        try:
+                            signal.signal(signal.SIGINT, original_handler)
+                        except (OSError, ValueError):
+                            # If restoration fails on Windows, just continue
+                            pass
+                    else:
+                        # Unix-like systems: Normal restoration
+                        signal.signal(signal.SIGINT, original_handler)
+                except Exception:
+                    # Never let signal handler restoration crash the app
+                    pass
             esc_listener_stop_event.set()
             if esc_listener_thread and esc_listener_thread.is_alive():
                 try:

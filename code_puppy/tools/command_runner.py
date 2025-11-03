@@ -58,26 +58,35 @@ def _kill_process_group(proc: subprocess.Popen) -> None:
     """Attempt to aggressively terminate a process and its group.
 
     Cross-platform best-effort. On POSIX, uses process groups. On Windows, tries CTRL_BREAK_EVENT, then terminate().
+    On Windows PowerShell, be extra careful to avoid shell bricking.
     """
     try:
         if sys.platform.startswith("win"):
+            # Windows: Kill entire process tree for PowerShell compatibility
             try:
-                # Try a soft break first if the group exists
-                proc.send_signal(signal.CTRL_BREAK_EVENT)  # type: ignore[attr-defined]
-                time.sleep(0.8)
-            except Exception:
+                if proc.poll() is None:
+                    # Try to terminate the entire process tree
+                    try:
+                        # Use taskkill to terminate the process tree (Windows-specific)
+                        import subprocess as sp
+                        sp.run(['taskkill', '/F', '/T', '/PID', str(proc.pid)], 
+                               capture_output=True, timeout=2)
+                        time.sleep(0.5)
+                    except (sp.SubprocessError, FileNotFoundError, sp.TimeoutExpired):
+                        pass
+                    
+                    # If still running, try regular terminate
+                    if proc.poll() is None:
+                        proc.terminate()
+                        time.sleep(0.8)
+                    
+                    # Final attempt with kill if still running
+                    if proc.poll() is None:
+                        proc.kill()
+                        time.sleep(0.5)
+                        
+            except (OSError, ValueError, ProcessLookupError):
                 pass
-            if proc.poll() is None:
-                try:
-                    proc.terminate()
-                    time.sleep(0.8)
-                except Exception:
-                    pass
-            if proc.poll() is None:
-                try:
-                    proc.kill()
-                except Exception:
-                    pass
             return
 
         # POSIX
@@ -117,7 +126,7 @@ def _kill_process_group(proc: subprocess.Popen) -> None:
 def kill_all_running_shell_processes() -> int:
     """Kill all currently tracked running shell processes.
 
-    Returns the number of processes signaled.
+    Returns the number of processes actually killed.
     """
     procs: list[subprocess.Popen]
     with _RUNNING_PROCESSES_LOCK:
@@ -126,11 +135,48 @@ def kill_all_running_shell_processes() -> int:
     for p in procs:
         try:
             if p.poll() is None:
+                emit_info(f"Terminating shell process PID {p.pid}...")
                 _kill_process_group(p)
-                count += 1
-                _USER_KILLED_PROCESSES.add(p.pid)
+                
+                # Wait longer and verify the process actually died
+                import time
+                for attempt in range(10):  # Try for up to 2 seconds
+                    time.sleep(0.2)
+                    if p.poll() is not None:
+                        break
+                    
+                if p.poll() is not None:
+                    count += 1
+                    _USER_KILLED_PROCESSES.add(p.pid)
+                    emit_info(f"Successfully terminated process PID {p.pid}")
+                else:
+                    emit_warning(f"Failed to terminate process PID {p.pid} - still running after 2 seconds")
+                    # On Windows, try one more aggressive approach
+                    if sys.platform.startswith("win"):
+                        try:
+                            import subprocess as sp
+                            result = sp.run(['taskkill', '/F', '/T', '/PID', str(p.pid)], 
+                                          capture_output=True, text=True, timeout=3)
+                            emit_info(f"Taskkill result: {result.returncode} - {result.stdout.strip()}")
+                            time.sleep(0.5)
+                            if p.poll() is not None:
+                                count += 1
+                                _USER_KILLED_PROCESSES.add(p.pid)
+                                emit_info(f"Taskkill finally terminated process PID {p.pid}")
+                        except Exception as e:
+                            emit_error(f"Taskkill failed: {e}")
+            else:
+                emit_info(f"Process PID {p.pid} already terminated")
+        except Exception as e:
+            emit_error(f"Error killing process {p.pid}: {e}")
         finally:
             _unregister_process(p)
+    
+    if count > 0:
+        emit_info(f"Successfully interrupted {count} shell process(es)")
+    else:
+        emit_warning("No active shell processes to interrupt")
+    
     return count
 
 
@@ -460,7 +506,10 @@ def run_shell_command(
         preexec_fn = None
         if sys.platform.startswith("win"):
             try:
-                creationflags = subprocess.CREATE_NEW_PROCESS_GROUP  # type: ignore[attr-defined]
+                # On Windows PowerShell, don't use CREATE_NEW_PROCESS_GROUP initially
+                # It can cause issues with process tree termination
+                # We'll handle termination differently
+                creationflags = 0  # No special flags for better process tree access
             except Exception:
                 creationflags = 0
         else:
