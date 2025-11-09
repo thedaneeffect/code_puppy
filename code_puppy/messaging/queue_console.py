@@ -214,11 +214,6 @@ class QueueConsole:
         This method coordinates with the TUI to pause any running spinners
         and properly display the user input prompt.
         """
-        # Set the global flag that we're awaiting user input
-        from code_puppy.tools.command_runner import set_awaiting_user_input
-
-        set_awaiting_user_input(True)
-
         # Signal TUI to pause spinner and prepare for user input (legacy method)
         try:
             # Try to get the current TUI app instance and pause spinner
@@ -235,18 +230,12 @@ class QueueConsole:
         if prompt:
             self.queue.emit_simple(MessageType.SYSTEM, prompt, requires_user_input=True)
 
-        # Create a new, isolated console instance specifically for input
-        # This bypasses any spinner or queue system interference
-        input_console = Console(file=__import__("sys").stderr, force_terminal=True)
-
-        # Clear any spinner artifacts and position cursor properly
-        if prompt:
-            input_console.print(prompt, end="", style="bold cyan")
-
-        # Use regular input() which will read from stdin
-        # Since we printed the prompt to stderr, this should work cleanly
+        # Use the centralized user input utility for better terminal handling
+        # This uses prompt_toolkit under the hood and properly manages terminal state
         try:
-            user_response = input()
+            from code_puppy.messaging.user_input import prompt_user_input
+
+            user_response = prompt_user_input(prompt=prompt if prompt else "")
 
             # Show the user's response in the chat as well
             if user_response:
@@ -257,15 +246,9 @@ class QueueConsole:
             return user_response
         except (KeyboardInterrupt, EOFError):
             # Handle interruption gracefully
-            input_console.print("\n[yellow]Input cancelled[/yellow]")
             self.queue.emit_simple(MessageType.WARNING, "User input cancelled")
             return ""
         finally:
-            # Clear the global flag for awaiting user input
-            from code_puppy.tools.command_runner import set_awaiting_user_input
-
-            set_awaiting_user_input(False)
-
             # Signal TUI to resume spinner if needed (legacy method)
             try:
                 from textual.app import App

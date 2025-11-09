@@ -19,6 +19,7 @@ from code_puppy.messaging import (
     emit_system_message,
     emit_warning,
 )
+from code_puppy.messaging.user_input import prompt_yes_no
 from code_puppy.tools.common import generate_group_id
 from code_puppy.tui_state import is_tui_mode
 
@@ -428,22 +429,19 @@ def run_shell_command(
         if cwd:
             emit_info(f"[dim] Working directory: {cwd} [/dim]", message_group=group_id)
 
-        # Set the flag to indicate we're awaiting user input
-        set_awaiting_user_input(True)
-
-        time.sleep(0.2)
-        sys.stdout.write("Are you sure you want to run this command? (y(es)/n(o))\n")
-        sys.stdout.flush()
+        # Use the centralized prompt_yes_no utility for better terminal handling
+        time.sleep(0.2)  # Small delay for output to settle
 
         try:
-            user_input = input()
-            confirmed = user_input.strip().lower() in {"yes", "y"}
+            confirmed = prompt_yes_no(
+                prompt="Are you sure you want to run this command?",
+                enter_means_yes=False,  # Require explicit yes for shell commands
+            )
         except (KeyboardInterrupt, EOFError):
             emit_warning("\n Cancelled by user")
             confirmed = False
         finally:
-            # Clear the flag regardless of the outcome
-            set_awaiting_user_input(False)
+            # Release the lock if we acquired it
             if confirmation_lock_acquired:
                 _CONFIRMATION_LOCK.release()
 

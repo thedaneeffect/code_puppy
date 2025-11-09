@@ -21,6 +21,7 @@ from .message_queue import (
 )
 from .queue_console import QueueConsole, get_queue_console
 from .renderers import InteractiveRenderer, SynchronousInteractiveRenderer, TUIRenderer
+from .user_input import prompt_user_input, prompt_yes_no
 
 __all__ = [
     "MessageQueue",
@@ -47,4 +48,6 @@ __all__ = [
     "SynchronousInteractiveRenderer",
     "QueueConsole",
     "get_queue_console",
+    "prompt_user_input",
+    "prompt_yes_no",
 ]

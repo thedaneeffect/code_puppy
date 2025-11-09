@@ -142,23 +142,10 @@ class ConsoleSpinner(SpinnerBase):
             # Update the live display to hide the spinner immediately
             if self._live:
                 try:
-                    # When pausing, first update with the waiting message
-                    # so it's visible briefly before disappearing
-                    from code_puppy.tools.command_runner import is_awaiting_user_input
-
-                    if is_awaiting_user_input():
-                        text = Text()
-                        text.append(SpinnerBase.WAITING_MESSAGE, style="bold cyan")
-                        text.append(self.current_frame, style="bold cyan")
-                        self._live.update(text)
-                        self._live.refresh()
-                        # Allow a moment for the waiting message to be visible
-                        import time
-
-                        time.sleep(0.1)
-
-                    # Then clear the display
+                    # Clear the display immediately without showing waiting message
+                    # This prevents visual noise when prompting for user input
                     self._live.update(Text(""))
+                    self._live.refresh()
                 except Exception:
                     # If update fails, try stopping it completely
                     try:

@@ -6,14 +6,13 @@ providing a consistent and extensible permission system.
 
 import difflib
 import os
-import sys
 import threading
 from typing import Any
 
 from code_puppy.callbacks import register_callback
 from code_puppy.config import get_diff_context_lines, get_yolo_mode
 from code_puppy.messaging import emit_info, emit_warning
-from code_puppy.tools.command_runner import set_awaiting_user_input
+from code_puppy.messaging.user_input import prompt_yes_no
 from code_puppy.tools.common import _find_best_window
 
 # Lock for preventing multiple simultaneous permission prompts
@@ -213,49 +212,34 @@ def prompt_for_file_permission(
         return False
 
     try:
-        # Build a complete prompt message to ensure atomic display
-        complete_message = (
-            "\n[bold yellow]🔒 File Operation Confirmation Required[/bold yellow]\n"
-        )
-        complete_message += f"Request to [bold cyan]{operation}[/bold cyan] file: [bold white]{file_path}[/bold white]"
-
+        # Build a complete preview message
         if preview:
-            complete_message += "\n\n[bold]Preview of changes:[/bold]\n"
+            preview_message = "\n[bold cyan]📋 Preview of changes:[/bold cyan]\n"
             # Always format the preview with proper diff highlighting
             formatted_preview = _format_diff_with_highlighting(preview)
-            complete_message += formatted_preview
+            preview_message += formatted_preview + "\n"
+            # Emit the preview separately so it's clear
+            emit_info(preview_message, message_group=message_group)
 
-        complete_message += "\n[bold yellow]💡 Hint: Press Enter or 'y' to accept, 'n' to reject[/bold yellow]"
-        complete_message += f"\n[bold]Are you sure you want to {operation} {file_path}? (y(es) or enter as accept/n(o)) [/bold]"
-
-        # Emit the complete message as one unit to prevent interruption
-        emit_info(complete_message, message_group=message_group)
-
-        # Force the message to display before prompting
-        sys.stdout.write("\n")
-        sys.stdout.flush()
-
-        set_awaiting_user_input(True)
-
+        # Use the centralized prompt_yes_no utility with a clean, simple prompt
         try:
-            user_input = input()
-            # Empty input (Enter) counts as yes, like shell commands
-            confirmed = user_input.strip().lower() in {"yes", "y", ""}
+            confirmed = prompt_yes_no(
+                prompt=f"🔒 {operation.capitalize()} [bold white]{file_path}[/bold white]?",
+                enter_means_yes=True,
+            )
         except (KeyboardInterrupt, EOFError):
-            emit_warning("\n Cancelled by user", message_group=message_group)
+            emit_warning("\n⚠️  Cancelled by user", message_group=message_group)
             confirmed = False
-        finally:
-            set_awaiting_user_input(False)
 
         if not confirmed:
             emit_info(
-                "[bold red]✗ Permission denied. Operation cancelled.[/bold red]",
+                "[bold red]✗ Permission denied[/bold red]",
                 message_group=message_group,
             )
             return False
         else:
             emit_info(
-                "[bold green]✓ Permission granted. Proceeding with operation.[/bold green]",
+                "[bold green]✓ Proceeding[/bold green]",
                 message_group=message_group,
             )
             return True
